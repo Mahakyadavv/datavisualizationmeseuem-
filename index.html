@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Visualization Forest</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            color: white;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        label {
+            font-weight: 600;
+        }
+
+        input[type="file"],
+        input[type="range"],
+        select {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+        }
+
+        input[type="range"] {
+            width: 150px;
+        }
+
+        input[type="file"]::file-selector-button {
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        input[type="file"]::file-selector-button:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 600px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .info {
+            color: white;
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .sample-data {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            color: #ddd;
+            font-size: 13px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌲 Data Visualization Forest</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="fileInput">📁 Load CSV:</label>
+                <input type="file" id="fileInput" accept=".csv,.json">
+            </div>
+
+            <div class="control-group">
+                <label for="maxHeight">Max Height:</label>
+                <input type="range" id="maxHeight" min="5" max="30" value="15" step="1">
+                <span id="heightValue">15</span>
+            </div>
+
+            <div class="control-group">
+                <label for="spacing">Spacing:</label>
+                <input type="range" id="spacing" min="1" max="10" value="3" step="0.5">
+                <span id="spacingValue">3</span>
+            </div>
+
+            <button id="sampleBtn">📊 Load Sample Data</button>
+            <button id="resetBtn">🔄 Reset</button>
+        </div>
+
+        <canvas id="canvas"></canvas>
+
+        <div class="info">
+            💡 Use mouse to rotate • Scroll to zoom • Right-click drag to pan<br>
+            Load a CSV with columns: <strong>label, value</strong>
+        </div>
+
+        <div class="sample-data" id="sampleDisplay"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const canvas = document.getElementById('canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 100, 150);
+
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            canvas.clientWidth / canvas.clientHeight,
+            0.1,
+            1000
+        );
+        camera.position.set(0, 15, 30);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFShadowShadowMap;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(20, 30, 20);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.far = 200;
+        scene.add(directionalLight);
+
+        // Ground
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x2d5016 });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Grid helper
+        const gridHelper = new THREE.GridHelper(100, 100, 0x444444, 0x222222);
+        gridHelper.position.y = 0.01;
+        scene.add(gridHelper);
+
+        // Mouse controls
+        let mouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotation = 0;
+        let targetRotationOnMouseDownX = 0;
+        let targetRotationOnMouseDownY = 0;
+
+        document.addEventListener('mousedown', (e) => {
+            mouseDown = true;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            targetRotationOnMouseDownX = targetRotation;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (mouseDown) {
+                const deltaX = e.clientX - mouseX;
+                const deltaY = e.clientY - mouseY;
+                targetRotation = targetRotationOnMouseDownX + deltaX * 0.01;
+                camera.position.applyAxisAngle(
+                    new THREE.Vector3(0, 1, 0),
+                    deltaX * 0.01
+                );
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            mouseDown = false;
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const direction = camera.position.clone().normalize();
+            const distance = camera.position.length();
+            const newDistance = Math.max(5, Math.min(150, distance + e.deltaY * 0.1));
+            camera.position.copy(direction.multiplyScalar(newDistance));
+        });
+
+        let trees = [];
+        let maxHeightValue = 15;
+        let spacingValue = 3;
+
+        function createTree(height, x, z, label = '') {
+            const group = new THREE.Group();
+
+            // Trunk
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, height * 0.6, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = height * 0.3;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            group.add(trunk);
+
+            // Foliage (cone)
+            const foliageGeometry = new THREE.ConeGeometry(height * 0.5, height * 0.7, 16);
+            const foliageMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x228B22,
+                roughness: 0.7
+            });
+            const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+            foliage.position.y = height * 0.75;
+            foliage.castShadow = true;
+            foliage.receiveShadow = true;
+            group.add(foliage);
+
+            // Label
+            if (label) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'white';
+                ctx.font = 'Bold 48px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, 128, 32);
+
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(2, 0.5, 1);
+                sprite.position.y = height + 1;
+                group.add(sprite);
+            }
+
+            group.position.set(x, 0, z);
+            return group;
+        }
+
+        function clearTrees() {
+            trees.forEach(tree => scene.remove(tree));
+            trees = [];
+        }
+
+        function generateForest(data, maxHeight, spacing) {
+            clearTrees();
+            maxHeightValue = maxHeight;
+            spacingValue = spacing;
+
+            const maxValue = Math.max(...data.map(d => d.value));
+            const cols = Math.ceil(Math.sqrt(data.length));
+
+            data.forEach((point, idx) => {
+                const row = Math.floor(idx / cols);
+                const col = idx % cols;
+                const x = col * spacing - (cols * spacing) / 2;
+                const z = row * spacing - (cols * spacing) / 2;
+                const height = (point.value / maxValue) * maxHeight;
+
+                const tree = createTree(height, x, z, point.label || String(point.value));
+                trees.push(tree);
+                scene.add(tree);
+            });
+
+            // Center camera
+            const centerX = ((cols - 1) * spacing) / 2;
+            const centerZ = ((cols - 1) * spacing) / 2;
+            camera.position.set(centerX, maxHeight * 1.5, centerZ + maxHeight * 2);
+            camera.lookAt(centerX, 0, centerZ);
+        }
+
+        // File parsing
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',').map(v => v.trim());
+                const row = {};
+                headers.forEach((header, idx) => {
+                    row[header] = isNaN(values[idx]) ? values[idx] : parseFloat(values[idx]);
+                });
+                if (row.value && !isNaN(row.value)) {
+                    data.push({
+                        label: row.label || row.name || `Item ${i}`,
+                        value: row.value
+                    });
+                }
+            }
+            return data;
+        }
+
+        function parseJSON(text) {
+            const json = JSON.parse(text);
+            return Array.isArray(json) ? json : [json];
+        }
+
+        // Event listeners
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    let data;
+                    if (file.name.endsWith('.csv')) {
+                        data = parseCSV(event.target.result);
+                    } else if (file.name.endsWith('.json')) {
+                        data = parseJSON(event.target.result);
+                    }
+                    generateForest(data, maxHeightValue, spacingValue);
+                    displaySampleData(data);
+                } catch (err) {
+                    alert('Error parsing file: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('sampleBtn').addEventListener('click', () => {
+            const sampleData = [
+                { label: '2000', value: 369 },
+                { label: '2005', value: 375 },
+                { label: '2010', value: 380 },
+                { label: '2015', value: 385 },
+                { label: '2020', value: 390 },
+                { label: '2024', value: 395 },
+                { label: '2025', value: 397 }
+            ];
+            generateForest(sampleData, maxHeightValue, spacingValue);
+            displaySampleData(sampleData);
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            clearTrees();
+            camera.position.set(0, 15, 30);
+            camera.lookAt(0, 0, 0);
+        });
+
+        document.getElementById('maxHeight').addEventListener('input', (e) => {
+            maxHeightValue = parseFloat(e.target.value);
+            document.getElementById('heightValue').textContent = maxHeightValue;
+            if (trees.length > 0) {
+                generateForest(
+                    trees.map((_, i) => ({
+                        label: `Item ${i}`,
+                        value: Math.random() * 100
+                    })),
+                    maxHeightValue,
+                    spacingValue
+                );
+            }
+        });
+
+        document.getElementById('spacing').addEventListener('input', (e) => {
+            spacingValue = parseFloat(e.target.value);
+            document.getElementById('spacingValue').textContent = spacingValue;
+            if (trees.length > 0) {
+                generateForest(
+                    trees.map((_, i) => ({
+                        label: `Item ${i}`,
+                        value: Math.random() * 100
+                    })),
+                    maxHeightValue,
+                    spacingValue
+                );
+            }
+        });
+
+        function displaySampleData(data) {
+            const display = document.getElementById('sampleDisplay');
+            display.innerHTML = '<strong>Loaded Data:</strong><br>' +
+                data.map(d => `${d.label}: ${d.value}`).join(' | ');
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        });
+
+        // Load sample data on startup
+        document.getElementById('sampleBtn').click();
+    </script>
+</body>
+</html>
